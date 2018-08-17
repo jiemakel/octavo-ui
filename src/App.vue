@@ -1,25 +1,16 @@
-<template>
-  <div id="app">
-    <div id="nav">
-      <router-link to="/">Home</router-link> |
-      <router-link to="/about">About</router-link>
-    </div>
-    <router-view/>
-  </div>
+<template lang="pug">
+v-app
+  v-toolbar(color='indigo', dark, fixed, app)
+    v-toolbar-title Octavo UI
+    v-spacer
+    v-toolbar-items
+      v-btn(flat,:to="{path:'/terms',query:$route.query}") Term Discovery
+      v-btn(flat,:to="{path:'/search',query:$route.query}") Search
+      v-btn(flat,:to="{path:'/stats',query:$route.query}") Statistics
+      v-btn(flat,:to="{path:'/vocabulary',query:$route.query}") Vocabulary
+      v-btn(flat,:to="{path:'/',query:$route.query}") Settings
+  v-content: v-container(fluid)
+    router-view
+  v-footer(color='indigo', app)
+    span.white--text &nbsp;© 2017 Eetu Mäkelä
 </template>
-<style lang="stylus">
-#app
-  font-family 'Avenir', Helvetica, Arial, sans-serif
-  -webkit-font-smoothing antialiased
-  -moz-osx-font-smoothing grayscale
-  text-align center
-  color #2c3e50
-
-#nav
-  padding 30px
-  a
-    font-weight bold
-    color #2c3e50
-    &.router-link-exact-active
-      color #42b983
-</style>
