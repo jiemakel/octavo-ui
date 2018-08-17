@@ -21,12 +21,7 @@ export default new Router({
     {
       path: '/terms',
       name: 'terms',
-      component: Terms,
-      props: route => ({
-        initialQuery: route.query.query,
-        initialLimit: parseInt(route.query.limit, 10),
-        initialFields: route.query.field
-      })
+      component: Terms
     },
     {
       path: '/search',

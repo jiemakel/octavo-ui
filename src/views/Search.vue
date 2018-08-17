@@ -45,9 +45,10 @@ ensure-endpoint-initialized
         v-card(tile,v-if="props.item.content"): v-card-text {{props.item.content}}
       template(slot="no-data")
         v-alert(:value="error",color="error",icon="warning") {{error}}
-  v-flex: v-card
+  | &nbsp;
+  v-card
     v-card-title: h2 Request
-    a(:href="request",target="_blank") {{ request }}
+    v-container(fluid): a(:href="request",target="_blank") {{ request }}
 </template>
 <script lang="ts">
 import lodash from 'lodash'
@@ -148,7 +149,6 @@ export default class Search extends MyVue {
         })
       })
       .catch(error => {
-        console.log(error)
         this.loading = false
         this.results = []
         this.error = error
