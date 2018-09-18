@@ -57,7 +57,7 @@ ensure-endpoint-initialized
     v-container(fluid): a(:href="request",target="_blank") {{ request }}
 </template>
 <script lang="ts">
-import lodash from 'lodash'
+import { isEqual } from 'lodash'
 import axios from '@/common/MyAxios'
 import { Component, Vue, Prop, Watch } from 'vue-property-decorator'
 import localStorageConfig from '@/common/localstorage-config'
@@ -164,7 +164,7 @@ export default class Search extends MyVue {
       },
       this.params
     )
-    if (!lodash.isEqual(this.$route.query, nq))
+    if (!isEqual(this.$route.query, nq))
       this.$router.push({
         path: '/search',
         query: nq
@@ -250,7 +250,7 @@ export default class Search extends MyVue {
   @Watch('$route.query', { immediate: true })
   private onQueryChanged(): void {
     let nq = Object.assign({}, this.$route.query, this.params)
-    if (!lodash.isEqual(this.$route.query, nq)) {
+    if (!isEqual(this.$route.query, nq)) {
       Object.assign(this.params, this.$route.query)
       if (!Array.isArray(this.params.field))
         this.params.field = [this.params.field]
