@@ -39,7 +39,7 @@ ensure-endpoint-initialized
     v-container(fluid): a(:href="request",target="_blank") {{ request }}
 </template>
 <script lang="ts">
-import lodash from 'lodash'
+import { isEqual } from 'lodash'
 import axios from '@/common/MyAxios'
 import { Component, Vue, Prop, Watch } from 'vue-property-decorator'
 import localStorageConfig from '@/common/localstorage-config'
@@ -90,6 +90,7 @@ export default class Terms extends Vue {
   private error = ''
   private request = ''
   private tsearch = ''
+  private auths = this.$localStorage.get('auths')
   private search() {
     this.loading = true
     let nq = Object.assign(
@@ -100,14 +101,15 @@ export default class Terms extends Vue {
       },
       this.params
     )
-    if (!lodash.isEqual(this.$route.query, nq))
+    if (!isEqual(this.$route.query, nq))
       this.$router.push({
         name: 'terms',
         query: nq
       })
     axios
       .get(this.$store.state.endpoint + 'similarTerms', {
-        params: this.params
+        params: this.params,
+        auth: this.auths[this.$store.state.endpoint]
       })
       .then((response: AxiosResponse<ISimilarTermsResults>) => {
         this.request =
@@ -146,7 +148,7 @@ export default class Terms extends Vue {
   @Watch('$route.query', { immediate: true })
   private onQueryChanged(): void {
     let nq = Object.assign({}, this.$route.query, this.params)
-    if (!lodash.isEqual(this.$route.query, nq)) {
+    if (!isEqual(this.$route.query, nq)) {
       Object.assign(this.params, this.$route.query)
       if (this.$store.state.endpoint && this.params.query) this.search()
     }

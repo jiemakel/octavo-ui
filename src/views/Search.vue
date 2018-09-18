@@ -17,12 +17,13 @@ ensure-endpoint-initialized
                 | {{fieldInfo.fieldInfo.description}}
             v-flex(xs12,lg8): v-autocomplete(close,label="Fields to return",v-model="params.field",multiple,chips,:items="availableFields",item-value="value.field")
               v-chip(slot="selection",color="primary",text-color="white",slot-scope="data",@input="data.parent.selectItem(data.item)",close) {{ data.item.value.field }}
-            v-flex(xs6,lg2): v-checkbox(label="Show matches",v-model="params.returnMatches",true-value="true",false-value="false")
-            v-flex(xs6,lg2): v-text-field(label="Limit",hint="-1 for no limit",type="number",v-model="params.limit")
+            v-flex(xs6,lg2): v-text-field(label="Maximum number of documents to return",hint="-1 for no limit",type="number",v-model="params.limit")
+            v-flex(xs6,lg2): v-text-field(label="Maximum number of snippets to return per document",hint="-1 for no limit",v-model="params.snippetLimit",type="number")
         v-expansion-panel-content(key="2")
           div(slot="header") Advanced options
           v-container(fluid): v-layout(row,wrap)
-            v-flex(xs12): v-textarea(label="Offset Data Converter Script")
+            v-flex(xs12): v-textarea(label="Field Enrichment Script",v-model="params.fieldEnricher")
+            v-flex(xs12): v-textarea(label="Offset Data Converter Script",v-model="params.offsetDataConverter")
             v-flex(xs12): v-text-field(label="Other parameters")
       v-flex: v-btn(color="primary",@click="search()") Search
   | &nbsp;
@@ -36,12 +37,17 @@ ensure-endpoint-initialized
       template(slot="items" slot-scope="props"): tr(active="true",@click="props.expanded = !props.expanded")
         td {{ props.item.score }}
         td(v-for="field in params.field.filter(f => f !== 'content')")
-          span(v-if="Array.isArray(props.item[field])")
-            v-chip(small,v-for="value in props.item[field]",:key="value") {{value}}
-          a(v-else-if="typeof(props.item[field]) == 'string' && props.item[field].indexOf('http')===0",:href="props.item[field]",target="_blank") {{ props.item[field] }}
-          span(v-else) {{ props.item[field] }}
+          v-tooltip(top)
+            div(v-if="props.item.tooltips[field]",v-html="props.item.tooltips[field]")
+            div(slot="activator")
+              span(v-if="Array.isArray(props.item[field])")
+                v-chip(small,v-for="value in props.item[field]",:key="value") {{value}}
+              a(v-else-if="typeof(props.item[field]) == 'string' && props.item[field].indexOf('http')===0",:href="props.item[field]",target="_blank") {{ props.item[field] }}
+              span(v-else) {{ props.item[field] }}
       template(slot="expand",slot-scope="props")
-        v-card(tile,v-for="snippet in props.item.snippets",:key="snippet.start"): v-card-text(v-html="snippet.snippet")
+        v-tooltip(top,v-for="snippet in props.item.snippets",:key="snippet.start")
+          v-card(slot="activator",tile): v-card-text(v-html="snippet.snippet")
+          img(:src="snippet.imgurl")
         v-card(tile,v-if="props.item.content"): v-card-text {{props.item.content}}
       template(slot="no-data")
         v-alert(:value="error",color="error",icon="warning") {{error}}
@@ -72,12 +78,19 @@ interface ISnippet {
   matches: IMatch[]
   snippet: string
   end: number
+  imgurl: string
 }
 interface ISearchResult {
   score: number
   id: number
   snippets?: ISnippet[]
-  [fieldId: string]: number | string | ISnippet[] | undefined
+  tooltips: {
+    [fieldId: string]: string
+  }
+  links: {
+    [fieldId: string]: string
+  }
+  [fieldId: string]: any
 }
 interface ISearchResults {
   queryMetadata: {}
@@ -98,6 +111,7 @@ export default class Search extends MyVue {
   private error = ''
   private request = ''
   private tsearch = ''
+  private auths = this.$localStorage.get('auths')
   private customFilter(
     items: ISearchResult[],
     search: string,
@@ -114,9 +128,35 @@ export default class Search extends MyVue {
         props.some(prop => filter(item[prop], search))
     )
   }
+  private get fieldEnricher(): (
+    field: string,
+    value: any,
+    obj: ISearchResult
+  ) => {
+    link?: string
+    tooltip?: string
+  } {
+    return new Function('field', 'value', 'obj', this.params.fieldEnricher) as (
+      field: string,
+      value: any,
+      obj: ISearchResult
+    ) => {
+      link?: string
+      tooltip?: string
+    }
+  }
+  private get offsetDataConverter(): (
+    snippet: ISnippet,
+    doc: ISearchResult
+  ) => string {
+    return new Function('snippet', 'doc', this.params.offsetDataConverter) as (
+      snippet: ISnippet,
+      doc: ISearchResult
+    ) => string
+  }
   private search() {
     this.loading = true
-    let nq = Object.assign(
+    const nq = Object.assign(
       {},
       this.$route.query,
       {
@@ -129,9 +169,13 @@ export default class Search extends MyVue {
         path: '/search',
         query: nq
       })
+    let cp = this.params
+    if (this.params.offsetDataConverter)
+      cp = Object.assign({ offsetData: 'true' }, cp)
     axios
       .get(this.$store.state.endpoint + 'search', {
-        params: this.params
+        params: cp,
+        auth: this.auths[this.$store.state.endpoint]
       })
       .then((response: AxiosResponse<ISearchResults>) => {
         this.request =
@@ -142,9 +186,25 @@ export default class Search extends MyVue {
         this.totalResults = response.data.results.total
         this.results = response.data.results.docs
         this.results.forEach((r, idx) => {
-          // hack until expanded works
           r.id = idx
-          if (this.params.returnMatches === 'true')
+          r.tooltips = {}
+          r.links = {}
+          for (let field of this.params.field) {
+            let res = this.fieldEnricher(field, r[field], r)
+            if (res) {
+              if (res.link) r.links[field] = res.link
+              if (res.tooltip) r.tooltips[field] = res.tooltip
+            }
+          }
+          if (r.snippets)
+            for (let snippet of r.snippets)
+              try {
+                snippet.imgurl = this.offsetDataConverter(snippet, r)
+              } catch (error) {
+                console.log(error)
+              }
+          // hack until expanded works
+          if (this.params.snippetLimit !== 0)
             this.$set((this.$refs['dtable'] as any)['expanded'], r.id, true)
         })
       })
@@ -165,10 +225,12 @@ export default class Search extends MyVue {
     fieldInfo: IFieldInfo
   }[] = []
   private params = {
-    returnMatches: 'true',
+    fieldEnricher: '',
+    offsetDataConverter: '',
     query: '',
     field: [],
-    limit: 20
+    limit: 20,
+    snippetLimit: 20
   }
   private get headers() {
     return [{ text: 'score', value: 'score' }].concat(
@@ -190,6 +252,8 @@ export default class Search extends MyVue {
     let nq = Object.assign({}, this.$route.query, this.params)
     if (!lodash.isEqual(this.$route.query, nq)) {
       Object.assign(this.params, this.$route.query)
+      if (!Array.isArray(this.params.field))
+        this.params.field = [this.params.field]
       if (this.$store.state.endpoint && this.params.query) this.search()
     }
   }
@@ -231,9 +295,6 @@ export default class Search extends MyVue {
         (l: ILevelInfo) => new Option(l.id + ': ' + l.description, l)
       )
       this.level = this.$store.state.indexInfo.levels[0]
-      /*    this.level = this.$store.state.indexInfo.levels.find(
-        (l: ILevelInfo) => l.id === this.$store.state.indexInfo.defaultLevel
-      )!*/
       if (this.params.query) this.search()
     }
   }
