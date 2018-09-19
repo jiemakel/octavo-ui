@@ -1,8 +1,6 @@
 import Settings from '@/views/Settings.vue'
 import Vue from 'vue'
 import Router from 'vue-router'
-import Search from '@/views/Search.vue'
-import Terms from '@/views/Terms.vue'
 import Authenticate from '@/views/Authenticate.vue'
 
 Vue.use(Router)
@@ -21,12 +19,12 @@ export default new Router({
     {
       path: '/terms',
       name: 'terms',
-      component: Terms
+      component: () => import(/* webpackChunkName: "terms" */ '@/views/Terms.vue')
     },
     {
       path: '/search',
       name: 'search',
-      component: Search
+      component: () => import(/* webpackChunkName: "search" */ '@/views/Search.vue')
     },
     {
       path: '/auth',

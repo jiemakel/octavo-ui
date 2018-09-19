@@ -1,5 +1,5 @@
 <template lang="pug">
-v-form: v-container: v-layout(column)
+v-container: v-layout(column)
     v-text-field(label="Endpoint",v-model="endpoint",:error="!isEndpointValid")
     div(v-show="requireAuthentication")
         span.subheading The address seems to require authentication
@@ -11,11 +11,17 @@ v-form: v-container: v-layout(column)
 import axios from 'axios'
 import { Component, Vue, Prop, Watch } from 'vue-property-decorator'
 import { AuthInfo } from '@/common/AuthInfo'
-import debounce from 'lodash/debounce'
+import { debounce } from 'lodash-es'
 import localStorageConfig from '@/common/localstorage-config'
+import * as VTextField from 'vuetify/es5/components/VTextField'
+import * as VGrid from 'vuetify/es5/components/VGrid'
 
 @Component({
-  localStorage: localStorageConfig
+  localStorage: localStorageConfig,
+  components: {
+    ...VTextField,
+    ...VGrid
+  }
 })
 export default class Settings extends Vue {
   @Prop({ default: '' })

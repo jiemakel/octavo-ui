@@ -57,7 +57,7 @@ ensure-endpoint-initialized
     v-container(fluid): a(:href="request",target="_blank") {{ request }}
 </template>
 <script lang="ts">
-import { isEqual } from 'lodash'
+import { isEqual } from 'lodash-es'
 import axios from '@/common/MyAxios'
 import { Component, Vue, Prop, Watch } from 'vue-property-decorator'
 import localStorageConfig from '@/common/localstorage-config'
@@ -65,6 +65,19 @@ import { AuthInfo } from '@/common/AuthInfo'
 import EnsureEndpointInitialized from '@/components/EnsureEndpointInitialized.vue'
 import { ILevelInfo, IFieldInfo, MyVue, IndexingType, StoreType } from '@/store'
 import { AxiosResponse } from 'axios'
+import * as VCard from 'vuetify/es5/components/VCard'
+import * as VTextField from 'vuetify/es5/components/VTextField'
+import * as VTextarea from 'vuetify/es5/components/VTextarea'
+import * as VBtn from 'vuetify/es5/components/VBtn'
+import * as VSelect from 'vuetify/es5/components/VSelect'
+import * as VDataTable from 'vuetify/es5/components/VDataTable'
+import * as VAlert from 'vuetify/es5/components/VAlert'
+import * as VCheckbox from 'vuetify/es5/components/VCheckbox'
+import * as VChip from 'vuetify/es5/components/VChip'
+import * as VTooltip from 'vuetify/es5/components/VTooltip'
+import * as VExpansionPanel from 'vuetify/es5/components/VExpansionPanel'
+import * as VAutocomplete from 'vuetify/es5/components/VAutocomplete'
+
 class Option<V> {
   constructor(public text: string, public value: V) {}
 }
@@ -103,7 +116,18 @@ interface ISearchResults {
 @Component({
   localStorage: localStorageConfig,
   components: {
-    EnsureEndpointInitialized
+    EnsureEndpointInitialized,
+    ...VCard,
+    ...VChip,
+    ...VTooltip,
+    ...VDataTable,
+    ...VAlert,
+    ...VBtn,
+    ...VTextField,
+    ...VTextarea,
+    ...VSelect,
+    ...VAutocomplete,
+    ...VExpansionPanel
   }
 })
 export default class Search extends MyVue {

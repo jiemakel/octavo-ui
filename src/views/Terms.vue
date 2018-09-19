@@ -13,16 +13,16 @@ ensure-endpoint-initialized
   | &nbsp;
   v-card
     v-card-title
-      h2(v-show="results.length != totalTerms") First {{results.length}} out of {{ totalTerms }} results (total document frequency: {{totalDocFreq}}, total term frequency: {{totalTermFreq}})
-      h2(v-show="results.length == totalTerms") All {{results.length}} results (total document frequency: {{totalDocFreq}}, total term frequency: {{totalTermFreq}})
+      h2(v-show="results.length != totalTerms") First {{results.length | numFormat}} out of {{ totalTerms | numFormat }} results (total document frequency: {{totalDocFreq | numFormat}}, total term frequency: {{totalTermFreq | numFormat}})
+      h2(v-show="results.length == totalTerms") All {{results.length | numFormat}} results (total document frequency: {{totalDocFreq | numFormat}}, total term frequency: {{totalTermFreq | numFormat}})
       v-spacer
       v-text-field(v-model="tsearch",append-icon="search",label="Filter",single-line,hide-details)
     v-data-table(:search="tsearch",v-bind:pagination.sync="pagination",v-model="selected",:items="results",hide-actions,select-all,must-sort,:loading="loading",item-key="term",:headers="headers")
       template(slot="items" slot-scope="props"): tr
         td: v-checkbox(v-model="props.selected",primary,hide-details)
         td: router-link(:to="{ name: 'search', query: Object.assign({},$route.query,{query: props.item.term }) }", target="_blank") {{ props.item.term }}
-        td {{ props.item.docFreq }}
-        td {{ props.item.totalTermFreq }}
+        td {{ props.item.docFreq | numFormat }}
+        td {{ props.item.totalTermFreq | numFormat }}
       template(slot="no-data")
         v-alert(:value="error",color="error",icon="warning") {{error}}
   | &nbsp;
@@ -39,7 +39,7 @@ ensure-endpoint-initialized
     v-container(fluid): a(:href="request",target="_blank") {{ request }}
 </template>
 <script lang="ts">
-import { isEqual } from 'lodash'
+import { isEqual } from 'lodash-es'
 import axios from '@/common/MyAxios'
 import { Component, Vue, Prop, Watch } from 'vue-property-decorator'
 import localStorageConfig from '@/common/localstorage-config'
@@ -47,6 +47,14 @@ import { AuthInfo } from '@/common/AuthInfo'
 import EnsureEndpointInitialized from '@/components/EnsureEndpointInitialized.vue'
 import { ILevelInfo, IFieldInfo } from '@/store'
 import { AxiosResponse } from 'axios'
+import * as VCard from 'vuetify/es5/components/VCard'
+import * as VTextField from 'vuetify/es5/components/VTextField'
+import * as VTextarea from 'vuetify/es5/components/VTextarea'
+import * as VBtn from 'vuetify/es5/components/VBtn'
+import * as VSelect from 'vuetify/es5/components/VSelect'
+import * as VDataTable from 'vuetify/es5/components/VDataTable'
+import * as VAlert from 'vuetify/es5/components/VAlert'
+import * as VCheckbox from 'vuetify/es5/components/VCheckbox'
 class Option<V> {
   constructor(public text: string, public value: V) {}
 }
@@ -69,7 +77,15 @@ interface ISimilarTermsResults {
 @Component({
   localStorage: localStorageConfig,
   components: {
-    EnsureEndpointInitialized
+    EnsureEndpointInitialized,
+    ...VCard,
+    ...VBtn,
+    ...VTextField,
+    ...VTextarea,
+    ...VSelect,
+    ...VDataTable,
+    ...VAlert,
+    ...VCheckbox
   }
 })
 export default class Terms extends Vue {
