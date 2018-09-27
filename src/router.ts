@@ -27,6 +27,11 @@ export default new Router({
       component: () => import(/* webpackChunkName: "search" */ '@/views/Search.vue')
     },
     {
+      path: '/kwic',
+      name: 'kwic',
+      component: () => import(/* webpackChunkName: "kwic" */ '@/views/KWIC.vue')
+    },
+    {
       path: '/auth',
       name: 'auth',
       component: Authenticate,

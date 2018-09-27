@@ -1,7 +1,7 @@
 <template lang="pug">
 ensure-endpoint-initialized
   v-card
-    v-card-title: h2 Search
+    v-card-title: h2 Keyword in Context Search
     v-layout(column)
       v-flex(pl-2,pr-2): v-expansion-panel(expand,v-model="expandOptions")
         v-expansion-panel-content(key="1")
@@ -18,12 +18,15 @@ ensure-endpoint-initialized
         v-expansion-panel-content(key="2")
           div(slot="header") Return options
           v-container(fluid): v-layout(row,wrap)
-            v-flex(xs12): v-autocomplete(close,label="Fields to return",v-model="params.field",multiple,chips,:items="availableFields",item-value="value.field")
-              v-chip(slot="selection",color="primary",text-color="white",slot-scope="data",@input="data.parent.selectItem(data.item)",close) {{ data.item.value.field }}
-            v-flex(xs6,sm3): v-text-field(label="Max snippets per doc",hint="-1 for no limit",v-model="params.snippetLimit",type="number")
+            v-flex(xs6,sm3): v-text-field(label="Max matches to return",hint="-1 for no limit",type="number",v-model="params.limit")
             v-flex(xs6,sm3): v-select(label="Amount of context to return",v-model="params.contextLevel",:items="['Character','Token','Word','Line','Sentence','Paragraph']")
             v-flex(xs6,sm3): v-text-field(label="Extend context left",type="number",v-model="params.contextExpandLeft")
             v-flex(xs6,sm3): v-text-field(label="Extend context right",type="number",v-model="params.contextExpandRight")
+            v-flex(xs6): v-select(label="Context sort level",v-model="params.sortContextLevel",:items="['Character','Token','Word','Line','Sentence','Paragraph']")
+            v-flex(xs6): v-text-field(label="Sort distance indices",v-model="sortIndices",:rules="sortRules",hint="Separate distance indices by commas. Add D to specify descending sort. E.g. \"0D,-1D,1\"")
+            v-flex(xs12,lg8): v-autocomplete(close,label="Fields to return",v-model="params.field",multiple,chips,:items="availableFields",item-value="value.field")
+              v-chip(slot="selection",color="primary",text-color="white",slot-scope="data",@input="data.parent.selectItem(data.item)",close) {{ data.item.value.field }}
+
         v-expansion-panel-content(key="3")
           div(slot="header") Advanced options
           v-container(fluid): v-layout(row,wrap)
@@ -34,14 +37,15 @@ ensure-endpoint-initialized
   | &nbsp;
   v-card
     v-card-title
-      h2(v-show="results.length != totalResults && params.offset == 0") First {{results.length}} out of {{ totalResults }} results
-      h2(v-show="results.length != totalResults && params.offset != 0") Results {{params.offset}}-{{params.offset+results.length}} out of {{ totalResults }} results
+      h2(v-show="results.length != totalResults") First {{results.length}} out of {{ totalResults }} results
       h2(v-show="results.length == totalResults") All {{results.length}} results
       v-spacer
       v-text-field(v-model="tsearch",append-icon="search",label="Filter",single-line,hide-details)
-    v-data-table(:pagination.sync="pagination",ref="dtable",:items="filteredResults",:loading="loading",:total-items="totalResults",:rows-per-page-items="[10,20,50,100,200,{'text':'$vuetify.dataIterator.rowsPerPageAll','value':-1}]",item-key="id",:headers="headers",expand,must-sort)
-      template(slot="items" slot-scope="props"): tr(active="true",@click="props.expanded = !props.expanded")
-        td {{ props.item.score }}
+    v-data-table(ref="dtable",:items="results",:loading="loading",item-key="id",:total-items="totalResults",hide-headers,expand)
+      template(slot="items" slot-scope=" "): tr(active="true",@click="props.expanded = !props.expanded")
+        td: div(style="width:100%;overflow:auto").text-xs-right {{ props.item.context.substring(0,props.item.match.start) }}
+        td: div(style="width:100%;overflow:auto") {{ props.item.context.substring(props.item.match.start,props.item.match.end) }}
+        td: div(style="width:100%;overflow:auto").text-xs-left {{ props.item.context.substring(props.item.match.end) }}
         td(v-for="field in params.field.filter(f => f !== 'content')")
           v-tooltip(top)
             div(v-if="props.item.tooltips[field]",v-html="props.item.tooltips[field]")
@@ -93,16 +97,12 @@ interface IMatch {
   terms: string[]
 }
 interface ISnippet {
+  id: number
   start: number
   matches: IMatch[]
   snippet: string
   end: number
   imgurl: string
-}
-interface ISearchResult {
-  score: number
-  id: number
-  snippets?: ISnippet[]
   tooltips: {
     [fieldId: string]: string
   }
@@ -115,7 +115,7 @@ interface ISearchResults {
   queryMetadata: {}
   results: {
     final_query: string
-    docs: ISearchResult[]
+    matches: ISnippet[]
     total: number
   }
 }
@@ -136,19 +136,20 @@ interface ISearchResults {
     ...VExpansionPanel
   }
 })
-export default class Search extends MyVue {
+export default class KWIC extends MyVue {
   private loading = false
   private error = ''
   private request = ''
   private tsearch = ''
   private auths = this.$localStorage.get('auths')
-  private filteredResults: ISearchResult[] = []
+  private totalResults: number = 0
+  private results: ISnippet[] = []
+  private filteredResults: ISnippet[] = []
   @Watch('tsearch')
   @Watch('results')
   private customFilter() {
     const search = this.tsearch.toLowerCase().trim()
     if (search === '') this.filteredResults = this.results
-    const props = this.headers.map(h => h.value)
     this.filteredResults = this.results.filter(
       item =>
         (item.snippets &&
@@ -160,23 +161,6 @@ export default class Search extends MyVue {
         )
     )
   }
-  private get fieldEnricher(): (
-    field: string,
-    value: any,
-    obj: ISearchResult
-  ) => {
-    link?: string
-    tooltip?: string
-  } {
-    return new Function('field', 'value', 'obj', this.params.fieldEnricher) as (
-      field: string,
-      value: any,
-      obj: ISearchResult
-    ) => {
-      link?: string
-      tooltip?: string
-    }
-  }
   private get offsetDataConverter(): (
     snippet: ISnippet,
     doc: ISearchResult
@@ -186,31 +170,8 @@ export default class Search extends MyVue {
       doc: ISearchResult
     ) => string
   }
-  private totalResults = 0
-  private params = {
-    fieldEnricher: '',
-    offsetDataConverter: '',
-    query: '',
-    field: [],
-    offset: 0,
-    limit: 20,
-    snippetLimit: 20,
-    contextLevel: 'Sentence',
-    contextExpandLeft: 0,
-    contextExpandRight: 0
-  }
-  private pagination = {
-    sortBy: 'score',
-    descending: true,
-    page: 1,
-    rowsPerPage: this.params.limit
-  }
-  @Watch('pagination', { deep: true })
   private search() {
     this.loading = true
-    this.params.offset =
-      (this.pagination.page - 1) * this.pagination.rowsPerPage
-    this.params.limit = this.pagination.rowsPerPage
     const nq = Object.assign(
       {},
       this.$route.query,
@@ -221,14 +182,14 @@ export default class Search extends MyVue {
     )
     if (!isEqual(this.$route.query, nq))
       this.$router.push({
-        path: '/search',
+        path: '/kwic',
         query: nq
       })
     let cp = this.params
     if (this.params.offsetDataConverter)
       cp = Object.assign({ offsetData: 'true' }, cp)
     axios
-      .get(this.$store.state.endpoint + 'search', {
+      .get(this.$store.state.endpoint + 'kwic', {
         params: cp,
         auth: this.auths[this.$store.state.endpoint]
       })
@@ -239,28 +200,11 @@ export default class Search extends MyVue {
           response.config.paramsSerializer!(response.config.params)
         this.loading = false
         this.totalResults = response.data.results.total
-        this.results = response.data.results.docs
+        this.results = response.data.results.matches
         this.results.forEach((r, idx) => {
           r.id = idx
           r.tooltips = {}
           r.links = {}
-          for (let field of this.params.field) {
-            let res = this.fieldEnricher(field, r[field], r)
-            if (res) {
-              if (res.link) r.links[field] = res.link
-              if (res.tooltip) r.tooltips[field] = res.tooltip
-            }
-          }
-          if (r.snippets)
-            for (let snippet of r.snippets)
-              try {
-                snippet.imgurl = this.offsetDataConverter(snippet, r)
-              } catch (error) {
-                console.log(error)
-              }
-          // hack until expanded works
-          if (this.params.snippetLimit !== 0)
-            this.$set((this.$refs['dtable'] as any)['expanded'], r.id, true)
         })
       })
       .catch(error => {
@@ -279,15 +223,37 @@ export default class Search extends MyVue {
     field: string
     fieldInfo: IFieldInfo
   }[] = []
-  private get headers() {
-    return [{ text: 'score', value: 'score' }].concat(
-      this.params.field
-        .filter(h => h !== 'content')
-        .map(h => ({ text: h, value: h }))
-    )
+  private params = {
+    fieldEnricher: '',
+    offsetDataConverter: '',
+    query: '',
+    field: [],
+    limit: 20,
+    contextLevel: 'Sentence',
+    contextExpandLeft: 0,
+    contextExpandRight: 0,
+    sortContextLevel: 'Word',
+    sortContextDistance: [] as string[],
+    sortContextDirection: [] as string[]
   }
+  private sortIndices = '0,-1,1'
+  @Watch('sortIndices', { immediate: true })
+  private onSortIndicesChanges(): void {
+    let re = /(-?\d+)([ADad]?)/g
+    let m: RegExpExecArray | null
+    this.params.sortContextDistance = []
+    this.params.sortContextDirection = []
+    while ((m = re.exec(this.sortIndices))) {
+      this.params.sortContextDistance.push(m[1])
+      this.params.sortContextDirection.push(m[2] !== '' ? m[2] : 'A')
+    }
+  }
+  private sortRules = [
+    (v: string) =>
+      /^(?:-?\d+[ADad]?\s*,?\s*)*$/.test(v) ||
+      'Separate indices by commas. Add D to specify descending sort. E.g. "0D,-1D,1"'
+  ]
   private expandOptions = [true, true, false]
-  private results: ISearchResult[] = []
   @Watch('$route.query', { immediate: true })
   private onQueryChanged(): void {
     let nq = Object.assign({}, this.$route.query, this.params)
