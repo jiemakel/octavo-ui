@@ -18,10 +18,9 @@ ensure-endpoint-initialized
         v-expansion-panel-content(key="2")
           div(slot="header") Return options
           v-container(fluid): v-layout(row,wrap)
-            v-flex(xs6,sm3): v-text-field(label="Max matches to return",hint="-1 for no limit",type="number",v-model="params.limit")
-            v-flex(xs6,sm3): v-select(label="Amount of context to return",v-model="params.contextLevel",:items="['Character','Token','Word','Line','Sentence','Paragraph']")
-            v-flex(xs6,sm3): v-text-field(label="Extend context left",type="number",v-model="params.contextExpandLeft")
-            v-flex(xs6,sm3): v-text-field(label="Extend context right",type="number",v-model="params.contextExpandRight")
+            v-flex(xs4): v-select(label="Amount of context to return",v-model="params.contextLevel",:items="['Character','Token','Word','Line','Sentence','Paragraph']")
+            v-flex(xs4): v-text-field(label="Extend context left",type="number",v-model="params.contextExpandLeft")
+            v-flex(xs4): v-text-field(label="Extend context right",type="number",v-model="params.contextExpandRight")
             v-flex(xs6): v-select(label="Context sort level",v-model="params.sortContextLevel",:items="['Character','Token','Word','Line','Sentence','Paragraph']")
             v-flex(xs6): v-text-field(label="Sort distance indices",v-model="sortIndices",:rules="sortRules",hint="Separate distance indices by commas. Add D to specify descending sort. E.g. \"0D,-1D,1\"")
             v-flex(xs12,lg8): v-autocomplete(close,label="Fields to return",v-model="params.field",multiple,chips,:items="availableFields",item-value="value.field")
@@ -37,28 +36,21 @@ ensure-endpoint-initialized
   | &nbsp;
   v-card
     v-card-title
-      h2(v-show="results.length != totalResults") First {{results.length}} out of {{ totalResults }} results
+      h2(v-show="results.length != totalResults && params.offset == 0") First {{results.length}} out of {{ totalResults }} results
+      h2(v-show="results.length != totalResults && params.offset != 0") Results {{params.offset}}-{{params.offset+results.length}} out of {{ totalResults }} results
       h2(v-show="results.length == totalResults") All {{results.length}} results
       v-spacer
       v-text-field(v-model="tsearch",append-icon="search",label="Filter",single-line,hide-details)
-    v-data-table(ref="dtable",:items="results",:loading="loading",item-key="id",:total-items="totalResults",hide-headers,expand)
-      template(slot="items" slot-scope=" "): tr(active="true",@click="props.expanded = !props.expanded")
-        td: div(style="width:100%;overflow:auto").text-xs-right {{ props.item.context.substring(0,props.item.match.start) }}
-        td: div(style="width:100%;overflow:auto") {{ props.item.context.substring(props.item.match.start,props.item.match.end) }}
-        td: div(style="width:100%;overflow:auto").text-xs-left {{ props.item.context.substring(props.item.match.end) }}
-        td(v-for="field in params.field.filter(f => f !== 'content')")
-          v-tooltip(top)
-            div(v-if="props.item.tooltips[field]",v-html="props.item.tooltips[field]")
-            div(slot="activator")
-              span(v-if="Array.isArray(props.item[field])")
-                v-chip(small,v-for="value in props.item[field]",:key="value") {{value}}
-              a(v-else-if="typeof(props.item[field]) == 'string' && props.item[field].indexOf('http')===0",:href="props.item[field]",target="_blank") {{ props.item[field] }}
-              span(v-else) {{ props.item[field] }}
+    v-data-table(:pagination.sync="pagination",:rows-per-page-items="[10,20,50,100,200,{'text':'$vuetify.dataIterator.rowsPerPageAll','value':-1}]",ref="dtable",:items="filteredResults",:loading="loading",item-key="id",:total-items="totalResults",hide-headers,expand)
+      template(slot="items" slot-scope="props"): tr(active="true",@click="props.expanded = !props.expanded")
+        td(style="white-space:nowrap").text-xs-right(v-html="props.item.left")
+        td {{ props.item.snippet.substring(props.item.match.start,props.item.match.end) }}
+        td(style="white-space:nowrap").text-xs-left(v-html="props.item.right")
       template(slot="expand",slot-scope="props")
-        v-tooltip(top,v-for="snippet in props.item.snippets",:key="snippet.start")
-          v-card(slot="activator",tile): v-card-text(v-html="snippet.snippet")
-          img(:src="snippet.imgurl")
-        v-card(tile,v-if="props.item.content"): v-card-text {{props.item.content}}
+        table: tr
+          td(v-for="(value,field) in props.item.fields",:key="field"): v-tooltip(top)
+            span(slot="activator",v-html="value")
+            img(:src="props.item.imgurl")
       template(slot="no-data")
         v-alert(:value="error",color="error",icon="warning") {{error}}
   | &nbsp;
@@ -92,6 +84,7 @@ class Option<V> {
   constructor(public text: string, public value: V) {}
 }
 interface IMatch {
+  text: string
   start: number
   end: number
   terms: string[]
@@ -99,17 +92,30 @@ interface IMatch {
 interface ISnippet {
   id: number
   start: number
-  matches: IMatch[]
+  match: IMatch
   snippet: string
   end: number
-  imgurl: string
+  tooltip: string
+  link: string
+  left: string
+  right: string
+  sort: [
+    {
+      start: number
+      end: number
+      text: string
+    }
+  ]
   tooltips: {
     [fieldId: string]: string
   }
   links: {
     [fieldId: string]: string
   }
-  [fieldId: string]: any
+  fields: {
+    imgurl: string
+    [fieldId: string]: any
+  }
 }
 interface ISearchResults {
   queryMetadata: {}
@@ -151,27 +157,38 @@ export default class KWIC extends MyVue {
     const search = this.tsearch.toLowerCase().trim()
     if (search === '') this.filteredResults = this.results
     this.filteredResults = this.results.filter(
-      item =>
-        (item.snippets &&
-          item.snippets.some(
-            snippet => snippet.snippet.toLowerCase().indexOf(search) !== -1
-          )) ||
-        props.some(
-          prop => ('' + item[prop]).toLowerCase().indexOf(search) !== -1
-        )
+      item => item.snippet.toLowerCase().indexOf(search) !== -1
     )
   }
-  private get offsetDataConverter(): (
-    snippet: ISnippet,
-    doc: ISearchResult
-  ) => string {
-    return new Function('snippet', 'doc', this.params.offsetDataConverter) as (
-      snippet: ISnippet,
-      doc: ISearchResult
+  private get offsetDataConverter(): (snippet: ISnippet) => string {
+    return new Function('snippet', this.params.offsetDataConverter) as (
+      snippet: ISnippet
     ) => string
   }
+  private params = {
+    fieldEnricher: '',
+    offsetDataConverter: '',
+    query: '',
+    field: [],
+    limit: 20,
+    offset: 0,
+    contextLevel: 'Sentence',
+    contextExpandLeft: 0,
+    contextExpandRight: 0,
+    sortContextLevel: 'Word',
+    sortContextDistance: [] as string[],
+    sortContextDirection: [] as string[]
+  }
+  private pagination = {
+    page: 1,
+    rowsPerPage: this.params.limit
+  }
+  @Watch('pagination', { deep: true })
   private search() {
     this.loading = true
+    this.params.offset =
+      (this.pagination.page - 1) * this.pagination.rowsPerPage
+    this.params.limit = this.pagination.rowsPerPage
     const nq = Object.assign(
       {},
       this.$route.query,
@@ -202,6 +219,34 @@ export default class KWIC extends MyVue {
         this.totalResults = response.data.results.total
         this.results = response.data.results.matches
         this.results.forEach((r, idx) => {
+          r.match.start = r.match.start - r.start
+          r.match.end = r.match.end - r.start
+          r.sort.forEach(s => {
+            s.start = s.start - r.start
+            s.end = s.end - r.start
+          })
+          r.left = r.snippet.substring(0, r.match.start)
+          r.right = r.snippet.substring(r.match.end)
+          r.sort.sort((a, b) => a.start - b.start).forEach((s, i) => {
+            if (s.start < r.match.start)
+              r.left =
+                r.left.substring(0, s.start) +
+                '<span class="' +
+                this.styles[i % this.styles.length] +
+                '">' +
+                r.left.substring(s.start, s.end) +
+                '</span>' +
+                r.left.substring(s.end)
+            else if (s.start > r.match.end)
+              r.right =
+                r.right.substring(0, s.start - r.match.end) +
+                '<span class="' +
+                this.styles[i % this.styles.length] +
+                '">' +
+                r.right.substring(s.start - r.match.end, s.end - r.match.end) +
+                '</span>' +
+                r.right.substring(s.end - r.match.end)
+          })
           r.id = idx
           r.tooltips = {}
           r.links = {}
@@ -215,6 +260,21 @@ export default class KWIC extends MyVue {
   }
   private level: ILevelInfo = {} as ILevelInfo
   private levels: Option<ILevelInfo>[] = []
+  private styles = [
+    'red--text',
+    'pink--text',
+    'purple--text',
+    'indigo--text',
+    'blue--text',
+    'cyan--text',
+    'teal--text',
+    'light-green--text',
+    'lime--text',
+    'amber--text',
+    'orange--text',
+    'brown--text',
+    'blue-grey--text'
+  ]
   private availableFields: Option<{
     field: string
     fieldInfo: IFieldInfo
@@ -223,19 +283,6 @@ export default class KWIC extends MyVue {
     field: string
     fieldInfo: IFieldInfo
   }[] = []
-  private params = {
-    fieldEnricher: '',
-    offsetDataConverter: '',
-    query: '',
-    field: [],
-    limit: 20,
-    contextLevel: 'Sentence',
-    contextExpandLeft: 0,
-    contextExpandRight: 0,
-    sortContextLevel: 'Word',
-    sortContextDistance: [] as string[],
-    sortContextDirection: [] as string[]
-  }
   private sortIndices = '0,-1,1'
   @Watch('sortIndices', { immediate: true })
   private onSortIndicesChanges(): void {
