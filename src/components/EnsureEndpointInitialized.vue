@@ -1,7 +1,7 @@
 <template lang="pug">
 div
   div(v-show="state == 'loading'") Loading ...
-  div(v-show="state == 'error'") Error: {{ error }}
+  div(v-show="state == 'error'") Error: <pre>{{ error }}</pre>
   div(v-show="state == 'ready'"): slot
 </template>
 

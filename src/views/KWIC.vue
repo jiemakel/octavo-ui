@@ -160,6 +160,23 @@ export default class KWIC extends MyVue {
       item => item.snippet.toLowerCase().indexOf(search) !== -1
     )
   }
+  private get fieldEnricher(): (
+    field: string,
+    value: any,
+    obj: ISnippet
+  ) => {
+    link?: string
+    tooltip?: string
+  } {
+    return new Function('field', 'value', 'obj', this.params.fieldEnricher) as (
+      field: string,
+      value: any,
+      obj: ISnippet
+    ) => {
+      link?: string
+      tooltip?: string
+    }
+  }
   private get offsetDataConverter(): (snippet: ISnippet) => string {
     return new Function('snippet', this.params.offsetDataConverter) as (
       snippet: ISnippet
@@ -248,8 +265,22 @@ export default class KWIC extends MyVue {
                 r.right.substring(s.end - r.match.end)
           })
           r.id = idx
-          r.tooltips = {}
-          r.links = {}
+          try {
+            ;[r.tooltip, r.link] = this.offsetDataConverter(r)
+          } catch (error) {
+            console.log(error)
+          }
+          for (let field of this.params.field) {
+            try {
+              let res = this.fieldEnricher(field, r.fields[field], r)
+              if (res) {
+                if (res.link) r.links[field] = res.link
+                if (res.tooltip) r.tooltips[field] = res.tooltip
+              }
+            } catch (error) {
+              console.log(error)
+            }
+          }
         })
       })
       .catch(error => {

@@ -43,15 +43,16 @@ ensure-endpoint-initialized
       template(slot="items" slot-scope="props"): tr(active="true",@click="props.expanded = !props.expanded")
         td {{ props.item.score }}
         td(v-for="field in params.field.filter(f => f !== 'content')")
-          v-tooltip(lazy,top)
+          component(:is="props.item.tooltips[field] ? 'v-tooltip' : 'div'",lazy,top)
             div(v-if="props.item.tooltips[field]",v-html="props.item.tooltips[field]")
             div(slot="activator")
               span(v-if="Array.isArray(props.item[field])")
                 v-chip(small,v-for="value in props.item[field]",:key="value") {{value}}
               a(v-else-if="typeof(props.item[field]) == 'string' && props.item[field].indexOf('http')===0",:href="props.item[field]",target="_blank") {{ props.item[field] }}
+              a(v-else-if="props.item.links[field]",:href="props.item.links[field]",target="_blank") {{ props.item[field] }}
               span(v-else) {{ props.item[field] }}
       template(slot="expand",slot-scope="props")
-        v-tooltip(lazy,top,v-for="snippet in props.item.snippets",:key="snippet.start")
+        component(:is="snippet.tooltip ? 'v-tooltip' : 'div'",lazy,top,v-for="snippet in props.item.snippets",:key="snippet.start")
           v-card(:href="snippet.link",target=" _blank",slot="activator",tile): v-card-text(v-html="snippet.snippet")
           div(v-if="snippet.tooltip",v-html="snippet.tooltip")
         v-card(tile,v-if="props.item.content"): v-card-text {{props.item.content}}
@@ -198,7 +199,8 @@ export default class Search extends MyVue {
     snippetLimit: 20,
     contextLevel: 'Sentence',
     contextExpandLeft: 0,
-    contextExpandRight: 0
+    contextExpandRight: 0,
+    level: null
   }
   private pagination = {
     sortBy: 'score',
@@ -221,35 +223,33 @@ export default class Search extends MyVue {
       },
       this.params
     )
-    nq.query =
-      this.params.query.indexOf('<') !== 0
-        ? '<' +
-          this.level.id +
-          '§' +
-          this.params.query +
-          '§' +
-          this.level.id +
-          '>'
-        : this.params.query
     if (!isEqual(this.$route.query, nq))
       this.$router.push({
         path: '/search',
         query: nq
       })
-    let cp = this.params
+    let cp = Object.assign({}, this.params, {
+      query:
+        this.params.query.indexOf('<') !== 0
+          ? '<' +
+            this.level.id +
+            '§' +
+            this.params.query +
+            '§' +
+            this.level.id +
+            '>'
+          : this.params.query
+    })
     if (this.params.offsetDataConverter)
-      cp = Object.assign({ offsetData: 'true' }, cp)
+      Object.assign(cp, { offsetData: 'true' })
     if (
       this.pagination.sortBy != 'score' ||
       this.pagination.descending == false
     )
-      cp = Object.assign(
-        {
-          sort: this.pagination.sortBy,
-          sortDirection: this.pagination.descending ? 'D' : 'A'
-        },
-        cp
-      )
+      Object.assign(cp, {
+        sort: this.pagination.sortBy,
+        sortDirection: this.pagination.descending ? 'D' : 'A'
+      })
     axios
       .get(this.$store.state.endpoint + 'search?' + this.otherParameters, {
         params: cp,
@@ -362,7 +362,10 @@ export default class Search extends MyVue {
       this.levels = this.$store.state.indexInfo.levels.map(
         (l: ILevelInfo) => new Option(l.id + ': ' + l.description, l)
       )
-      this.level = this.$store.state.indexInfo.levels[0]
+      const fl = this.$store.state.indexInfo.levels.find(
+        l => l.id == this.params.level
+      )
+      this.level = fl ? fl : this.$store.state.indexInfo.levels[0]
       if (this.params.query) this.search()
     }
   }
