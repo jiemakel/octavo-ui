@@ -1,11 +1,9 @@
 <template lang="pug">
 div
   h2 Endpoint {{ $route.query.endpoint }} requires authentication
-  b-form-group(:state="isAuthenticationValid",label="Username",label-for="username")
-    b-form-input(id="username",:state="isAuthenticationValid",type="text",v-model="username")
-  b-form-group(:state="isAuthenticationValid",label="Password",label-for="password")
-    b-form-input(id="password",:state="isAuthenticationValid",type="password",v-model="password")
-  b-button(:to="returnTo",:disabled="!isAuthenticationValid",:variant="isAuthenticationValid ? 'success' : 'danger'") Login
+  v-text-field(label="Username",v-model="username",:error="!isAuthenticationValid")
+  v-text-field(type="password",label="Password",v-model="password",:error="!isAuthenticationValid")
+  v-btn(:to="returnTo",:disabled="!isAuthenticationValid",:color="isAuthenticationValid ? 'success' : 'error'") Login
   div(v-show="error")
     | Unexpected error accessing endpoint {{endpoint}}: {{error}}
 </template>
@@ -14,14 +12,22 @@ import axios from 'axios'
 import { Component, Vue, Prop, Watch } from 'vue-property-decorator'
 import localStorageConfig from '@/common/localstorage-config'
 import { AuthInfo } from '@/common/AuthInfo'
+import * as VTextField from 'vuetify/es5/components/VTextField'
+import * as VBtn from 'vuetify/es5/components/VBtn'
 @Component({
-  localStorage: localStorageConfig
+  localStorage: localStorageConfig,
+  components: {
+    ...VTextField,
+    ...VBtn
+  }
 })
 export default class Authenticate extends Vue {
   private username = ''
   private password = ''
-  @Prop() private returnTo!: string
-  @Prop() private endpoint!: string
+  @Prop()
+  private returnTo!: string
+  @Prop()
+  private endpoint!: string
   private error: string = ''
   private isAuthenticationValid = false
   private get authenticationInfoChanged() {

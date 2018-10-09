@@ -29,7 +29,7 @@ ensure-endpoint-initialized
           v-container(fluid): v-layout(row,wrap)
             v-flex(xs12): v-textarea(label="Field Enrichment Script",v-model="params.fieldEnricher")
             v-flex(xs12): v-textarea(label="Offset Data Converter Script",v-model="params.offsetDataConverter")
-            v-flex(xs12): v-text-field(label="Other parameters")
+            v-flex(xs12): v-text-field(label="Other parameters",v-model="otherParameters")
       v-flex: v-btn(color="primary",@click="search()") Search
   | &nbsp;
   v-card
@@ -43,7 +43,7 @@ ensure-endpoint-initialized
       template(slot="items" slot-scope="props"): tr(active="true",@click="props.expanded = !props.expanded")
         td {{ props.item.score }}
         td(v-for="field in params.field.filter(f => f !== 'content')")
-          v-tooltip(top)
+          v-tooltip(lazy,top)
             div(v-if="props.item.tooltips[field]",v-html="props.item.tooltips[field]")
             div(slot="activator")
               span(v-if="Array.isArray(props.item[field])")
@@ -51,12 +51,12 @@ ensure-endpoint-initialized
               a(v-else-if="typeof(props.item[field]) == 'string' && props.item[field].indexOf('http')===0",:href="props.item[field]",target="_blank") {{ props.item[field] }}
               span(v-else) {{ props.item[field] }}
       template(slot="expand",slot-scope="props")
-        v-tooltip(top,v-for="snippet in props.item.snippets",:key="snippet.start")
-          v-card(slot="activator",tile): v-card-text(v-html="snippet.snippet")
-          img(:src="snippet.imgurl")
+        v-tooltip(lazy,top,v-for="snippet in props.item.snippets",:key="snippet.start")
+          v-card(:href="snippet.link",target=" _blank",slot="activator",tile): v-card-text(v-html="snippet.snippet")
+          div(v-if="snippet.tooltip",v-html="snippet.tooltip")
         v-card(tile,v-if="props.item.content"): v-card-text {{props.item.content}}
-      template(slot="no-data")
-        v-alert(:value="error",color="error",icon="warning") {{error}}
+      template(slot="no-results")
+        v-alert(:value="error",color="error",icon="warning"): pre {{error}}
   | &nbsp;
   v-card
     v-card-title: h2 Request
@@ -97,7 +97,8 @@ interface ISnippet {
   matches: IMatch[]
   snippet: string
   end: number
-  imgurl: string
+  link?: string
+  tooltip?: string
 }
 interface ISearchResult {
   score: number
@@ -180,11 +181,11 @@ export default class Search extends MyVue {
   private get offsetDataConverter(): (
     snippet: ISnippet,
     doc: ISearchResult
-  ) => string {
+  ) => string[] {
     return new Function('snippet', 'doc', this.params.offsetDataConverter) as (
       snippet: ISnippet,
       doc: ISearchResult
-    ) => string
+    ) => string[]
   }
   private totalResults = 0
   private params = {
@@ -205,6 +206,7 @@ export default class Search extends MyVue {
     page: 1,
     rowsPerPage: this.params.limit
   }
+  private otherParameters = ''
   @Watch('pagination', { deep: true })
   private search() {
     this.loading = true
@@ -219,6 +221,16 @@ export default class Search extends MyVue {
       },
       this.params
     )
+    nq.query =
+      this.params.query.indexOf('<') !== 0
+        ? '<' +
+          this.level.id +
+          '§' +
+          this.params.query +
+          '§' +
+          this.level.id +
+          '>'
+        : this.params.query
     if (!isEqual(this.$route.query, nq))
       this.$router.push({
         path: '/search',
@@ -227,8 +239,19 @@ export default class Search extends MyVue {
     let cp = this.params
     if (this.params.offsetDataConverter)
       cp = Object.assign({ offsetData: 'true' }, cp)
+    if (
+      this.pagination.sortBy != 'score' ||
+      this.pagination.descending == false
+    )
+      cp = Object.assign(
+        {
+          sort: this.pagination.sortBy,
+          sortDirection: this.pagination.descending ? 'D' : 'A'
+        },
+        cp
+      )
     axios
-      .get(this.$store.state.endpoint + 'search', {
+      .get(this.$store.state.endpoint + 'search?' + this.otherParameters, {
         params: cp,
         auth: this.auths[this.$store.state.endpoint]
       })
@@ -254,7 +277,10 @@ export default class Search extends MyVue {
           if (r.snippets)
             for (let snippet of r.snippets)
               try {
-                snippet.imgurl = this.offsetDataConverter(snippet, r)
+                ;[snippet.tooltip, snippet.link] = this.offsetDataConverter(
+                  snippet,
+                  r
+                )
               } catch (error) {
                 console.log(error)
               }
@@ -265,6 +291,7 @@ export default class Search extends MyVue {
       })
       .catch(error => {
         this.loading = false
+        console.log(error)
         this.results = []
         this.error = error
       })

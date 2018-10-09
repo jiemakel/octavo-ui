@@ -19,12 +19,14 @@ export default new Router({
     {
       path: '/terms',
       name: 'terms',
-      component: () => import(/* webpackChunkName: "terms" */ '@/views/Terms.vue')
+      component: () =>
+        import(/* webpackChunkName: "terms" */ '@/views/Terms.vue')
     },
     {
       path: '/search',
       name: 'search',
-      component: () => import(/* webpackChunkName: "search" */ '@/views/Search.vue')
+      component: () =>
+        import(/* webpackChunkName: "search" */ '@/views/Search.vue')
     },
     {
       path: '/kwic',
