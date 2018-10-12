@@ -275,7 +275,8 @@ export default class Search extends MyVue {
             }
           }
           if (r.snippets)
-            for (let snippet of r.snippets)
+            for (let snippet of r.snippets) {
+              snippet.snippet = snippet.snippet.replace(/\n/g, '<br>\n')
               try {
                 ;[snippet.tooltip, snippet.link] = this.offsetDataConverter(
                   snippet,
@@ -284,6 +285,7 @@ export default class Search extends MyVue {
               } catch (error) {
                 console.log(error)
               }
+            }
           // hack until expanded works
           if (this.params.snippetLimit !== 0)
             this.$set((this.$refs['dtable'] as any)['expanded'], r.id, true)
