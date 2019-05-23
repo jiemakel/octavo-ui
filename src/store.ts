@@ -1,8 +1,6 @@
 import Vue from 'vue'
-import Vuex, { Store } from 'vuex'
-import { AuthInfo } from '@/common/AuthInfo'
-
-Vue.use(Vuex)
+import axios, { AxiosResponse, AxiosBasicCredentials, AxiosError } from 'axios'
+import router from '@/router'
 
 export enum IndexingType {
   TEXT = 'TEXT',
@@ -31,8 +29,35 @@ export interface IFieldInfo {
   description: string
   indexedAs: IndexingType
   storedAs: StoreType
-  distinctValues?: number
   containsJson: boolean
+  totalTerms?: number
+  termFreqQuantiles?: {
+    quantile: string
+    freq: number
+  }[]
+  termFreqs?: {
+    term: string
+    docFreq: number
+    totalTermFreq: number
+  }[]
+  docFreqQuantiles?: {
+    quantile: string
+    freq: number
+  }[]
+  quantiles?: {
+    quantile: string
+    max: number
+  }[]
+  histogram?: {
+    min: number
+    max: number
+    proportion: number
+  }[]
+  min?: number
+  max?: number
+  totalDocs?: number
+  sumDocFreq?: number
+  sumTotalTermFreq?: number
 }
 
 export interface ILevelInfo {
@@ -54,34 +79,31 @@ export interface IIndexInfo {
 }
 
 export class State {
-  public endpoint: string = ''
-  public auth: AuthInfo | null = null
-  public indexInfo: IIndexInfo = {} as IIndexInfo
-}
-
-export function setIndexInfo(store: Store<State>, indexInfo: State) {
-  store.commit('setIndexInfo', indexInfo)
-}
-
-export default new Store({
-  state: new State(),
-  mutations: {
-    setIndexInfo(
-      state,
-      payload: {
-        endpoint: string
-        auth: AuthInfo | null
-        indexInfo: IIndexInfo
+  public indexInfos: { [endpoint: string]: IIndexInfo | undefined } = {}
+  public async loadIndexInfo(endpoint: string) {
+    const auth = Vue.localStorage.get('auths')[endpoint]
+    if (!this.indexInfos[endpoint])
+      try {
+        const response = await axios.get(
+          endpoint + 'indexInfo?quantiles&histograms&stats&by=0.01&maxTermsToStat=20',
+          { auth }
+        )
+        Vue.set(this.indexInfos, endpoint, response.data.result)
+      } catch (error) {
+        if (error && error.response && error.response.status === 401)
+          router.push({
+            name: 'auth',
+            query: {
+              returnTo: router.currentRoute.fullPath,
+              endpoint
+            }
+          })
+        else throw error
       }
-    ) {
-      state.endpoint = payload.endpoint
-      state.auth = payload.auth
-      state.indexInfo = payload.indexInfo
-    }
-  },
-  actions: {}
-})
-
-export abstract class MyVue extends Vue {
-  public $store!: Store<State>
+    const endpoints: { [endpoint: string]: string } = Vue.localStorage.get('endpoints')
+    endpoints[endpoint] = this.indexInfos[endpoint]!.name
+    Vue.localStorage.set('endpoints', endpoints)
+  }
 }
+
+export default new State()

@@ -17,21 +17,29 @@ export default new Router({
       })
     },
     {
+      path: '/overview',
+      name: 'overview',
+      component: () => import(/* webpackChunkNAme: "overview" */ '@/views/Overview.vue')
+    },
+    {
       path: '/terms',
       name: 'terms',
-      component: () =>
-        import(/* webpackChunkName: "terms" */ '@/views/Terms.vue')
+      component: () => import(/* webpackChunkName: "terms" */ '@/views/Terms.vue')
     },
     {
       path: '/search',
       name: 'search',
-      component: () =>
-        import(/* webpackChunkName: "search" */ '@/views/Search.vue')
+      component: () => import(/* webpackChunkName: "search" */ '@/views/Search.vue')
     },
     {
       path: '/kwic',
       name: 'kwic',
       component: () => import(/* webpackChunkName: "kwic" */ '@/views/KWIC.vue')
+    },
+    {
+      path: '/stats',
+      name: 'stats',
+      component: () => import(/* webpackChunkName: "stats" */ '@/views/Stats.vue')
     },
     {
       path: '/auth',

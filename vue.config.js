@@ -1,6 +1,6 @@
 module.exports = {
-  baseUrl: process.env.NODE_ENV === 'production'
-    ? '/octavo-ui/'
-    : '/'
+  configureWebpack: {
+    devtool: 'source-map'
+  },
+  publicPath: process.env.NODE_ENV === 'production' ? '/octavo-nui/' : '/'
 }
-

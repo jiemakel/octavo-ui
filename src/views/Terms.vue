@@ -1,32 +1,32 @@
 <template lang="pug">
-ensure-endpoint-initialized
+div
   v-card
     v-card-title: h2 Term Discovery
     v-layout(column): v-flex(pl-2,pr-2): v-container(fluid,pl-2,pr-2): v-layout(row wrap)
-      v-flex(xs12,sm6): v-text-field(label="Endpoint",v-model="$store.state.endpoint",disabled)
+      v-flex(xs12,sm6): v-select(label="Endpoint",v-model="params.endpoint",:items="endpoints")
       v-flex(xs12,sm6): v-select(label="Default level",v-model="params.level",:items="levels",item-value="value.id")
-      v-flex(xs12,sm8)
+      v-flex(xs12)
         v-text-field(label="Query",v-model="params.query")
         | Understands an expanded form of <a href="http://lucene.apache.org/core/6_5_1/queryparser/org/apache/lucene/queryparser/classic/package-summary.html#package.description">Lucene query parser syntax</a>.
-      v-flex(xs12,sm4): v-text-field(label="Limit",hint="-1 for no limit",type="number",v-model="params.limit")
     v-btn(color="primary",@click="search()") Search
   | &nbsp;
-  v-card
+  v-alert(:value="errorMessage",color="error",icon="warning")
+    h2 An error occurred:
+    pre {{errorMessage}}
+  v-card(v-show="!error")
     v-card-title
       h2(v-show="results.length != totalTerms") First {{results.length | numFormat}} out of {{ totalTerms | numFormat }} results (total document frequency: {{totalDocFreq | numFormat}}, total term frequency: {{totalTermFreq | numFormat}})
       h2(v-show="results.length == totalTerms") All {{results.length | numFormat}} results (total document frequency: {{totalDocFreq | numFormat}}, total term frequency: {{totalTermFreq | numFormat}})
       v-spacer
       v-text-field(v-model="tsearch",append-icon="search",label="Filter",single-line,hide-details)
-    v-data-table(:search="tsearch",v-bind:pagination.sync="pagination",v-model="selected",:items="results",hide-actions,select-all,must-sort,:loading="loading",item-key="term",:headers="headers")
+    v-data-table(:pagination.sync="pagination",ref="dtable",v-model="selected",:items="filteredResults",:loading="loading",:total-items="totalTerms",:rows-per-page-items="[10,20,50,100,200,{'text':'$vuetify.dataIterator.rowsPerPageAll','value':-1}]",item-key="term",:headers="headers",must-sort,select-all)
       template(slot="items" slot-scope="props"): tr
         td: v-checkbox(v-model="props.selected",primary,hide-details)
         td: router-link(:to="{ name: 'search', query: Object.assign({},$route.query,{query: props.item.term }) }", target="_blank") {{ props.item.term }}
-        td {{ props.item.docFreq | numFormat }}
+        td {{ props.item.totalDocFreq | numFormat }}
         td {{ props.item.totalTermFreq | numFormat }}
-      template(slot="no-data")
-        v-alert(:value="error",color="error",icon="warning") {{error}}
   | &nbsp;
-  v-card
+  v-card(v-show="totalTerms>0")
     v-card-title
       h2 Generated query
     v-container(fluid): v-layout(column)
@@ -34,7 +34,7 @@ ensure-endpoint-initialized
       v-textarea(label="Query",v-model="generatedQuery")
       v-btn(color="secondary",:to="{ name: 'search', query: Object.assign({},$route.query,{query: generatedQuery }) }", target="_blank") Search
   | &nbsp;
-  v-card
+  v-card(v-show="!error")
     v-card-title: h2 Request
     v-container(fluid): a(:href="request",target="_blank") {{ request }}
 </template>
@@ -43,9 +43,7 @@ import { isEqual } from 'lodash-es'
 import axios from '@/common/MyAxios'
 import { Component, Vue, Prop, Watch } from 'vue-property-decorator'
 import localStorageConfig from '@/common/localstorage-config'
-import { AuthInfo } from '@/common/AuthInfo'
-import EnsureEndpointInitialized from '@/components/EnsureEndpointInitialized.vue'
-import { ILevelInfo, IFieldInfo } from '@/store'
+import store, { ILevelInfo, IFieldInfo, IndexingType, StoreType } from '@/store'
 import { AxiosResponse } from 'axios'
 import * as VCard from 'vuetify/es5/components/VCard'
 import * as VTextField from 'vuetify/es5/components/VTextField'
@@ -55,6 +53,7 @@ import * as VSelect from 'vuetify/es5/components/VSelect'
 import * as VDataTable from 'vuetify/es5/components/VDataTable'
 import * as VAlert from 'vuetify/es5/components/VAlert'
 import * as VCheckbox from 'vuetify/es5/components/VCheckbox'
+import { AbstractView } from '@/views/AbstractView'
 class Option<V> {
   constructor(public text: string, public value: V) {}
 }
@@ -65,7 +64,7 @@ interface ITermInfo {
 }
 interface ISimilarTermsResults {
   queryMetadata: {}
-  results: {
+  result: {
     general: {
       terms: number
       totalDocFreq: number
@@ -77,7 +76,6 @@ interface ISimilarTermsResults {
 @Component({
   localStorage: localStorageConfig,
   components: {
-    EnsureEndpointInitialized,
     ...VCard,
     ...VBtn,
     ...VTextField,
@@ -88,95 +86,90 @@ interface ISimilarTermsResults {
     ...VCheckbox
   }
 })
-export default class Terms extends Vue {
-  private totalTerms: number = -1
-  private totalTermFreq: number = -1
-  private totalDocFreq: number = -1
+export default class Terms extends AbstractView {
+  protected params = {
+    sort: 'TDF',
+    sortDirection: 'D',
+    offset: 0,
+    limit: 20,
+    level: '',
+    query: '',
+    endpoint: ''
+  }
+  private totalTerms: number = 0
+  private totalTermFreq: number = 0
+  private totalDocFreq: number = 0
   private results: ITermInfo[] = []
+  private headers = [
+    { text: 'term', value: 'term' },
+    { text: 'total document frequency', value: 'TDF' },
+    { text: 'total term frequency', value: 'TTF' }
+  ]
+  private pagination = {
+    sortBy: 'TDF',
+    descending: true,
+    page: 1,
+    rowsPerPage: this.params.limit
+  }
+  private tsearch = ''
+  private get filteredResults() {
+    const search = this.tsearch.toLowerCase().trim()
+    if (search === '') return this.results
+    const props = this.headers.map(h => h.value)
+    return this.results.filter(item => item.term.toLowerCase().indexOf(search) !== -1)
+  }
   private selected: ITermInfo[] = []
   private separator: string = 'OR'
+  private generatedQuery = ''
   @Watch('selected')
   @Watch('separator')
   private onSelect() {
-    this.generatedQuery = this.selected
-      .map(s => s.term)
-      .join(' ' + this.separator + ' ')
+    this.generatedQuery = this.selected.map(s => s.term).join(' ' + this.separator + ' ')
   }
-  private loading = false
-  private error = ''
-  private request = ''
-  private tsearch = ''
-  private auths = this.$localStorage.get('auths')
-  private search() {
+  @Watch('pagination', { deep: true })
+  private async search() {
     this.loading = true
-    let nq = Object.assign(
-      {},
-      this.$route.query,
-      {
-        endpoint: this.$store.state.endpoint
-      },
-      this.params
-    )
+    this.error = null
+    this.params.sort = this.pagination.sortBy
+    this.params.offset = (this.pagination.page - 1) * this.pagination.rowsPerPage
+    this.params.limit = this.pagination.rowsPerPage
+    this.params.sortDirection = this.pagination.descending ? 'D' : 'A'
+    let nq = Object.assign({}, this.$route.query, this.params)
     if (!isEqual(this.$route.query, nq))
       this.$router.push({
         name: 'terms',
         query: nq
       })
-    axios
-      .get(this.$store.state.endpoint + 'similarTerms', {
+    try {
+      const response = await axios.get(this.params.endpoint + 'similarTerms', {
         params: this.params,
-        auth: this.auths[this.$store.state.endpoint]
+        auth: this.auths[this.params.endpoint]
       })
-      .then((response: AxiosResponse<ISimilarTermsResults>) => {
-        this.request =
-          response.config.url +
-          '?pretty&' +
-          response.config.paramsSerializer!(response.config.params)
-        this.loading = false
-        this.totalTerms = response.data.results.general.terms
-        this.totalTermFreq = response.data.results.general.totalTermFreq
-        this.totalDocFreq = response.data.results.general.totalDocFreq
-        this.results = response.data.results.results
-      })
-      .catch(error => {
-        this.loading = false
-        this.results = []
-        this.error = error
-      })
+      this.request =
+        response.config.url + '?pretty&' + response.config.paramsSerializer!(response.config.params)
+      this.loading = false
+      this.totalTerms = response.data.result.general.terms
+      this.totalTermFreq = response.data.result.general.totalTermFreq
+      this.totalDocFreq = response.data.result.general.totalDocFreq
+      this.results = response.data.result.results
+    } catch (error) {
+      this.loading = false
+      this.error = error
+    }
   }
-  private params = {
-    limit: 20,
-    level: '',
-    query: ''
-  }
-  private pagination = {
-    sortBy: 'docFreq',
-    descending: true,
-    rowsPerPage: -1
-  }
-  private generatedQuery = ''
-  private levels: Option<ILevelInfo>[] = []
-  private headers = [
-    { text: 'term', value: 'term' },
-    { text: 'docFreq', value: 'docFreq' },
-    { text: 'totalTermFreq', value: 'totalTermFreq' }
-  ]
   @Watch('$route.query', { immediate: true })
   private onQueryChanged(): void {
     let nq = Object.assign({}, this.$route.query, this.params)
     if (!isEqual(this.$route.query, nq)) {
       Object.assign(this.params, this.$route.query)
-      if (this.$store.state.endpoint && this.params.query) this.search()
+      if (this.params.endpoint && this.params.query) this.search()
     }
   }
-  @Watch('$store.state.indexInfo', { immediate: true })
+  @Watch('indexInfo')
   private onIndexInfoChanged(): void {
-    if (this.$store.state.indexInfo.levels) {
-      this.levels = this.$store.state.indexInfo.levels.map(
-        (l: ILevelInfo) => new Option(l.id + ': ' + l.description, l)
-      )
-      this.params.level = this.$store.state.indexInfo.levels.find(
-        (l: ILevelInfo) => l.id === this.$store.state.indexInfo.defaultLevel
+    if (this.indexInfo) {
+      this.params.level = this.indexInfo.levels.find(
+        (l: ILevelInfo) => l.id === this.indexInfo!.defaultLevel
       )!.id
       if (this.params.query) this.search()
     }

@@ -13,7 +13,7 @@ git init
 git add -A
 git commit -m 'deploy'
 
-git push -f git@github.com:jiemakel/octavo-ui.git master:gh-pages
+git push -f git@github.com:jiemakel/octavo-nui.git master:gh-pages
 
 cd -
 

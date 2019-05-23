@@ -1,5 +1,5 @@
 <template lang="pug">
-ensure-endpoint-initialized
+div
   v-card
     v-card-title: h2 Keyword in Context Search
     v-layout(column)
@@ -7,8 +7,8 @@ ensure-endpoint-initialized
         v-expansion-panel-content(key="1")
           div(slot="header") Query options
           v-container(fluid): v-layout(row,wrap)
-            v-flex(xs12,sm6): v-text-field(label="Endpoint",v-model="$store.state.endpoint",disabled)
-            v-flex(xs12,sm6): v-select(label="Default level",v-model="level",:items="levels")
+            v-flex(xs12,sm6): v-select(label="Endpoint",v-model="params.endpoint",:items="endpoints")
+            v-flex(xs12,sm6): v-select(label="Default level",v-model="params.level",:items="levels",item-value="value.id")
             v-flex(xs12)
               v-textarea(label="Query",v-model="params.query")
               span.caption Understands an expanded form of <a href="http://lucene.apache.org/core/6_5_1/queryparser/org/apache/lucene/queryparser/classic/package-summary.html#package.description">Lucene query parser syntax</a>. Fields usable in the query are:
@@ -34,7 +34,10 @@ ensure-endpoint-initialized
             v-flex(xs12): v-text-field(label="Other parameters")
       v-flex: v-btn(color="primary",@click="search()") Search
   | &nbsp;
-  v-card
+  v-alert(:value="errorMessage",color="error",icon="warning")
+    h2 An error occurred:
+    pre {{errorMessage}}
+  v-card(:show="!error")
     v-card-title
       h2(v-show="results.length != totalResults && params.offset == 0") First {{results.length}} out of {{ totalResults }} results
       h2(v-show="results.length != totalResults && params.offset != 0") Results {{params.offset}}-{{params.offset+results.length}} out of {{ totalResults }} results
@@ -43,16 +46,14 @@ ensure-endpoint-initialized
       v-text-field(v-model="tsearch",append-icon="search",label="Filter",single-line,hide-details)
     v-data-table(:pagination.sync="pagination",:rows-per-page-items="[10,20,50,100,200,{'text':'$vuetify.dataIterator.rowsPerPageAll','value':-1}]",ref="dtable",:items="filteredResults",:loading="loading",item-key="id",:total-items="totalResults",hide-headers,expand)
       template(slot="items" slot-scope="props"): tr(active="true",@click="props.expanded = !props.expanded")
-        td(style="white-space:nowrap").text-xs-right(v-html="props.item.left")
+        td(style="white-space:nowrap",v-html="props.item.left").text-xs-right
         td {{ props.item.snippet.substring(props.item.match.start,props.item.match.end) }}
-        td(style="white-space:nowrap").text-xs-left(v-html="props.item.right")
+        td(style="white-space:nowrap",v-html="props.item.right").text-xs-left
       template(slot="expand",slot-scope="props")
         table: tr
           td(v-for="(value,field) in props.item.fields",:key="field"): v-tooltip(top)
             span(slot="activator",v-html="value")
             img(:src="props.item.imgurl")
-      template(slot="no-data")
-        v-alert(:value="error",color="error",icon="warning") {{error}}
   | &nbsp;
   v-card
     v-card-title: h2 Request
@@ -63,10 +64,9 @@ import { isEqual } from 'lodash-es'
 import axios from '@/common/MyAxios'
 import { Component, Vue, Prop, Watch } from 'vue-property-decorator'
 import localStorageConfig from '@/common/localstorage-config'
-import { AuthInfo } from '@/common/AuthInfo'
-import EnsureEndpointInitialized from '@/components/EnsureEndpointInitialized.vue'
-import { ILevelInfo, IFieldInfo, MyVue, IndexingType, StoreType } from '@/store'
+import store, { ILevelInfo, IFieldInfo, IndexingType, StoreType } from '@/store'
 import { AxiosResponse } from 'axios'
+import { AbstractView } from '@/views/AbstractView'
 import * as VCard from 'vuetify/es5/components/VCard'
 import * as VTextField from 'vuetify/es5/components/VTextField'
 import * as VTextarea from 'vuetify/es5/components/VTextarea'
@@ -119,7 +119,7 @@ interface ISnippet {
 }
 interface ISearchResults {
   queryMetadata: {}
-  results: {
+  result: {
     final_query: string
     matches: ISnippet[]
     total: number
@@ -128,7 +128,6 @@ interface ISearchResults {
 @Component({
   localStorage: localStorageConfig,
   components: {
-    EnsureEndpointInitialized,
     ...VCard,
     ...VChip,
     ...VTooltip,
@@ -142,12 +141,8 @@ interface ISearchResults {
     ...VExpansionPanel
   }
 })
-export default class KWIC extends MyVue {
-  private loading = false
-  private error = ''
-  private request = ''
+export default class KWIC extends AbstractView {
   private tsearch = ''
-  private auths = this.$localStorage.get('auths')
   private totalResults: number = 0
   private results: ISnippet[] = []
   private filteredResults: ISnippet[] = []
@@ -178,11 +173,11 @@ export default class KWIC extends MyVue {
     }
   }
   private get offsetDataConverter(): (snippet: ISnippet) => string {
-    return new Function('snippet', this.params.offsetDataConverter) as (
-      snippet: ISnippet
-    ) => string
+    return new Function('snippet', this.params.offsetDataConverter) as (snippet: ISnippet) => string
   }
-  private params = {
+  protected params = {
+    level: '',
+    endpoint: '',
     fieldEnricher: '',
     offsetDataConverter: '',
     query: '',
@@ -201,50 +196,42 @@ export default class KWIC extends MyVue {
     rowsPerPage: this.params.limit
   }
   @Watch('pagination', { deep: true })
-  private search() {
+  private async search() {
     this.loading = true
-    this.params.offset =
-      (this.pagination.page - 1) * this.pagination.rowsPerPage
+    this.params.offset = (this.pagination.page - 1) * this.pagination.rowsPerPage
     this.params.limit = this.pagination.rowsPerPage
-    const nq = Object.assign(
-      {},
-      this.$route.query,
-      {
-        endpoint: this.$store.state.endpoint
-      },
-      this.params
-    )
+    const nq = Object.assign({}, this.$route.query, this.params)
     if (!isEqual(this.$route.query, nq))
       this.$router.push({
         path: '/kwic',
         query: nq
       })
     let cp = this.params
-    if (this.params.offsetDataConverter)
-      cp = Object.assign({ offsetData: 'true' }, cp)
-    axios
-      .get(this.$store.state.endpoint + 'kwic', {
-        params: cp,
-        auth: this.auths[this.$store.state.endpoint]
-      })
-      .then((response: AxiosResponse<ISearchResults>) => {
-        this.request =
-          response.config.url +
-          '?pretty&' +
-          response.config.paramsSerializer!(response.config.params)
-        this.loading = false
-        this.totalResults = response.data.results.total
-        this.results = response.data.results.matches
-        this.results.forEach((r, idx) => {
-          r.match.start = r.match.start - r.start
-          r.match.end = r.match.end - r.start
-          r.sort.forEach(s => {
-            s.start = s.start - r.start
-            s.end = s.end - r.start
-          })
-          r.left = r.snippet.substring(0, r.match.start)
-          r.right = r.snippet.substring(r.match.end)
-          r.sort.sort((a, b) => a.start - b.start).forEach((s, i) => {
+    if (this.params.offsetDataConverter) cp = Object.assign({ offsetData: 'true' }, cp)
+    try {
+      const response: AxiosResponse<ISearchResults> = await axios.get(
+        this.params.endpoint + 'kwic',
+        {
+          params: cp,
+          auth: this.auths[this.params.endpoint]
+        }
+      )
+      this.request =
+        response.config.url + '?pretty&' + response.config.paramsSerializer!(response.config.params)
+      this.totalResults = response.data.result.total
+      this.results = response.data.result.matches
+      this.results.forEach((r, idx) => {
+        r.match.start = r.match.start - r.start
+        r.match.end = r.match.end - r.start
+        r.sort.forEach(s => {
+          s.start = s.start - r.start
+          s.end = s.end - r.start
+        })
+        r.left = r.snippet.substring(0, r.match.start)
+        r.right = r.snippet.substring(r.match.end)
+        r.sort
+          .sort((a, b) => a.start - b.start)
+          .forEach((s, i) => {
             if (s.start < r.match.start)
               r.left =
                 r.left.substring(0, s.start) +
@@ -264,33 +251,32 @@ export default class KWIC extends MyVue {
                 '</span>' +
                 r.right.substring(s.end - r.match.end)
           })
-          r.id = idx
+        r.id = idx
+        try {
+          ;[r.tooltip, r.link] = this.offsetDataConverter(r)
+        } catch (error) {
+          console.log(error)
+        }
+        for (let field of this.params.field) {
           try {
-            ;[r.tooltip, r.link] = this.offsetDataConverter(r)
+            let res = this.fieldEnricher(field, r.fields[field], r)
+            if (res) {
+              if (res.link) r.links[field] = res.link
+              if (res.tooltip) r.tooltips[field] = res.tooltip
+            }
           } catch (error) {
             console.log(error)
           }
-          for (let field of this.params.field) {
-            try {
-              let res = this.fieldEnricher(field, r.fields[field], r)
-              if (res) {
-                if (res.link) r.links[field] = res.link
-                if (res.tooltip) r.tooltips[field] = res.tooltip
-              }
-            } catch (error) {
-              console.log(error)
-            }
-          }
-        })
+        }
       })
-      .catch(error => {
-        this.loading = false
-        this.results = []
-        this.error = error
-      })
+    } catch (error) {
+      this.results = []
+      this.error = error
+    } finally {
+      this.loading = false
+    }
   }
   private level: ILevelInfo = {} as ILevelInfo
-  private levels: Option<ILevelInfo>[] = []
   private styles = [
     'red--text',
     'pink--text',
@@ -337,50 +323,42 @@ export default class KWIC extends MyVue {
     let nq = Object.assign({}, this.$route.query, this.params)
     if (!isEqual(this.$route.query, nq)) {
       Object.assign(this.params, this.$route.query)
-      if (!Array.isArray(this.params.field))
-        this.params.field = [this.params.field]
-      if (this.$store.state.endpoint && this.params.query) this.search()
+      if (!Array.isArray(this.params.field)) this.params.field = [this.params.field]
+      if (this.params.endpoint && this.params.query) this.search()
     }
   }
   @Watch('level')
+  @Watch('indexInfo')
   private onLevelChanged(): void {
     this.availableFields = []
     this.availableQueryableFields = []
-    for (let field in this.$store.state.indexInfo.commonFields) {
-      let fieldInfo = this.$store.state.indexInfo.commonFields[field]
-      let fd = {
-        field,
-        fieldInfo
+    const fieldsSeen: { [id: string]: boolean } = {}
+    if (this.indexInfo) {
+      for (let field in store.indexInfos[this.params.endpoint]!.commonFields) {
+        let fieldInfo = store.indexInfos[this.params.endpoint]!.commonFields[field]
+        let fd = {
+          field,
+          fieldInfo
+        }
+        if (fieldInfo.storedAs != StoreType.NONE)
+          this.availableFields.push(new Option(field + ': ' + fieldInfo.description, fd))
+        if (fieldInfo.indexedAs != IndexingType.NONE) this.availableQueryableFields.push(fd)
+        fieldsSeen[field] = true
       }
-      if (fieldInfo.storedAs != StoreType.NONE)
-        this.availableFields.push(
-          new Option(field + ': ' + fieldInfo.description, fd)
-        )
-      if (fieldInfo.indexedAs != IndexingType.NONE)
-        this.availableQueryableFields.push(fd)
-    }
-    for (let field in this.level.fields) {
-      let fieldInfo = this.level.fields[field]
-      let fd = {
-        field,
-        fieldInfo
-      }
-      if (fieldInfo.storedAs != StoreType.NONE)
-        this.availableFields.push(
-          new Option(field + ': ' + fieldInfo.description, fd)
-        )
-      if (fieldInfo.indexedAs != IndexingType.NONE)
-        this.availableQueryableFields.push(fd)
-    }
-  }
-  @Watch('$store.state.indexInfo', { immediate: true })
-  private onIndexInfoChanged(): void {
-    if (this.$store.state.indexInfo.levels) {
-      this.levels = this.$store.state.indexInfo.levels.map(
-        (l: ILevelInfo) => new Option(l.id + ': ' + l.description, l)
-      )
-      this.level = this.$store.state.indexInfo.levels[0]
-      if (this.params.query) this.search()
+      let level = this.indexInfo!.levels.find((l: ILevelInfo) => l.id === this.params.level)!
+      for (let field in level.fields)
+        if (!fieldsSeen[field]) {
+          let fieldInfo = level.fields[field]
+          let fd = {
+            field,
+            fieldInfo
+          }
+          if (fieldInfo.storedAs != StoreType.NONE)
+            this.availableFields.push(new Option(field + ': ' + fieldInfo.description, fd))
+          if (fieldInfo.indexedAs != IndexingType.NONE) this.availableQueryableFields.push(fd)
+          fieldsSeen[field] = true
+        }
+      this.params.field = this.params.field.filter(field => fieldsSeen[field])
     }
   }
 }

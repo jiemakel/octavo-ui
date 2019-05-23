@@ -8,10 +8,9 @@ div
     | Unexpected error accessing endpoint {{endpoint}}: {{error}}
 </template>
 <script lang="ts">
-import axios from 'axios'
+import axios, { AxiosBasicCredentials } from 'axios'
 import { Component, Vue, Prop, Watch } from 'vue-property-decorator'
 import localStorageConfig from '@/common/localstorage-config'
-import { AuthInfo } from '@/common/AuthInfo'
 import * as VTextField from 'vuetify/es5/components/VTextField'
 import * as VBtn from 'vuetify/es5/components/VBtn'
 @Component({
@@ -34,25 +33,25 @@ export default class Authenticate extends Vue {
     return this.username + this.password
   }
   @Watch('authenticationInfoChanged')
-  private onAuthenticationInfoChanged(): void {
+  private async onAuthenticationInfoChanged() {
     this.isAuthenticationValid = false
-    axios
-      .get(this.endpoint + 'indexInfo', {
+    try {
+      await axios.get(this.endpoint + 'indexInfo', {
         auth: {
           username: this.username,
           password: this.password
         }
       })
-      .then(() => {
-        this.isAuthenticationValid = true
-        const auths = this.$localStorage.get('auths')
-        auths[this.endpoint] = new AuthInfo(this.username, this.password)
-        this.$localStorage.set('auths', auths)
-      })
-      .catch(error => {
-        if (!error || !error.response || error.response.status !== 401)
-          this.error = error
-      })
+      this.isAuthenticationValid = true
+      const auths: { [id: string]: AxiosBasicCredentials } = this.$localStorage.get('auths')
+      auths[this.endpoint] = {
+        username: this.username,
+        password: this.password
+      }
+      this.$localStorage.set('auths', auths)
+    } catch (error) {
+      if (!error || !error.response || error.response.status !== 401) this.error = error
+    }
   }
 }
 </script>

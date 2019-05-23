@@ -4,6 +4,7 @@ v-app
     v-toolbar-title Octavo UI
     v-spacer
     v-toolbar-items
+      v-btn(flat,:to="{path:'/overview',query:$route.query}") Overview
       v-btn(flat,:to="{path:'/terms',query:$route.query}") Term Discovery
       v-btn(flat,:to="{path:'/search',query:$route.query}") Search
       v-btn(flat,:to="{path:'/stats',query:$route.query}") Statistics

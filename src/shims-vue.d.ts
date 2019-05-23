@@ -1,16 +1,8 @@
-import { State } from './store'
-import { Store } from 'vuex'
+import { VueLocalStorage } from 'vue-localstorage'
 import Vue from 'vue'
 
 declare module '*.vue' {
   export default Vue
-}
-
-interface ILocalStorage {
-  namespace: string
-  get(lsKey: string, defaultValue?: any, defaultType?: Function): any
-  set<T>(lsKey: string, value: T): T
-  addProperty(key: string, type: Function, defaultValue?: any): void
 }
 
 declare module 'vue/types/options' {
@@ -21,6 +13,9 @@ declare module 'vue/types/options' {
 
 declare module 'vue/types/vue' {
   interface Vue {
-    $localStorage: ILocalStorage
+    $localStorage: VueLocalStorage
+  }
+  interface VueConstructor {
+    localStorage: VueLocalStorage
   }
 }
